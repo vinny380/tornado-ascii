@@ -15,12 +15,19 @@ export interface State {
   gradient: GradientStop[];
   /** false = soft light background; true = black background with additive glow. */
   dark: boolean;
+  /**
+   * Video mode: webcam shows behind a transparent canvas and the tornado is
+   * driven by the index fingertip. Forces the dark/additive look and a
+   * transparent trail clear so the live feed shows through.
+   */
+  video: boolean;
 }
 
 // Default palette: warm orange ramp, tuned to read on a soft off-white bg.
 export const state: State = {
   speed: 1,
   dark: false,
+  video: false,
   gradient: [
     { pos: 0.0, color: "#9a3412" },
     { pos: 0.33, color: "#ea580c" },

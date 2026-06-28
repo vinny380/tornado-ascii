@@ -7,6 +7,7 @@ import { Director } from "./director";
 import { sampleImage, type ShapeSample } from "./morph";
 import { state } from "./state";
 import { initControls } from "./controls";
+import { HandTracker } from "./handtracking";
 
 const PARTICLE_COUNT = 20000;
 const SPINE_NODES = 24;
@@ -16,7 +17,23 @@ const MORPH_K = 8; // morph easing rate (higher = snappier dissolve)
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
 
+const camVideo = document.getElementById("cam") as HTMLVideoElement;
+const hands = new HandTracker(camVideo);
+
+const toastEl = document.getElementById("toast") as HTMLElement;
+let toastTimer = 0;
+function toast(msg: string) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), 3200);
+}
+
 const funnelHeight = () => window.innerHeight * 0.58;
+// Base (depth-neutral) dimensions; video depth mode scales around these.
+const baseMaxRadius = () =>
+  Math.min(window.innerWidth, window.innerHeight) * 0.22;
+const baseSegLen = () => funnelHeight() / (SPINE_NODES - 1);
 
 const spine = new Spine(
   SPINE_NODES,
@@ -120,6 +137,7 @@ function loadImageFiles(files: File[]) {
 let clock = 0;
 const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 let lastMove = -999;
+let depthEased = 0.5; // smoothed hand depth (0 far .. 1 near), video mode only
 window.addEventListener("pointermove", (e) => {
   mouse.x = e.clientX;
   mouse.y = e.clientY;
@@ -164,8 +182,37 @@ const ui = initControls({
     state.dark = v;
     applyTheme();
   },
+  getVideo: () => state.video,
+  setVideo: setVideoMode,
   onImageFiles: loadImageFiles,
 });
+
+// Enter/leave video mode: start or stop the webcam hand tracker and flip the
+// layered look. Returns the actual resulting state (false if the camera could
+// not start) so the toggle UI can stay in sync.
+async function setVideoMode(on: boolean): Promise<boolean> {
+  if (on === state.video) return state.video;
+  if (on) {
+    try {
+      await hands.start();
+    } catch (err) {
+      console.warn("Hand tracking failed to start:", err);
+      toast("Camera unavailable — check permissions");
+      return false;
+    }
+    state.video = true;
+    document.body.classList.add("video-mode");
+    toast("Point your index finger to steer the storm");
+  } else {
+    hands.stop();
+    state.video = false;
+    document.body.classList.remove("video-mode");
+    // Restore depth-neutral size/intensity left over from video mode.
+    tornado.intensity = 1;
+    sizing();
+  }
+  return state.video;
+}
 applyTheme();
 updateStatus();
 
@@ -197,8 +244,28 @@ function frame(now: number) {
   }
   tornado.morph = morph;
 
-  const idle = clock - lastMove > IDLE_SEC;
+  let idle = clock - lastMove > IDLE_SEC;
   let target = { x: mouse.x, y: mouse.y };
+  let brightBoost = 1;
+  if (state.video) {
+    const finger = hands.getTarget();
+    if (finger) {
+      target = finger; // index fingertip drives the tip
+      idle = false; // a hand is present — suppress the idle auto-sweep
+    }
+    // No hand detected: fall through to mouse / cinematic idle below so the
+    // storm keeps moving instead of freezing.
+
+    // Depth: ease toward the hand's distance (neutral 0.5 when no hand), then
+    // map it to size + churn + glow so the storm looms as it nears the camera.
+    const d = finger ? finger.depth : 0.5;
+    depthEased += (d - depthEased) * (1 - Math.exp(-5 * dt));
+    const sizeMul = 0.65 + 0.85 * depthEased; // ~0.65× (far) .. 1.5× (near)
+    tornado.maxRadius = baseMaxRadius() * sizeMul;
+    spine.setSegLen(baseSegLen() * sizeMul);
+    tornado.intensity = 0.85 + 0.7 * depthEased; // spins harder up close
+    brightBoost = 1 + 0.4 * depthEased; // and glows brighter
+  }
   if (director.cinematic && idle) {
     target = director.autoTarget(window.innerWidth, window.innerHeight, morph);
   }
@@ -208,7 +275,8 @@ function frame(now: number) {
   tornado.update(dt, spine, director.loopT);
   embers.update(dt, tornado, state.speed);
 
-  const globalBright = 0.9 + 0.1 * Math.sin(Math.PI * 2 * director.loopT);
+  const globalBright =
+    (0.9 + 0.1 * Math.sin(Math.PI * 2 * director.loopT)) * brightBoost;
   renderer.render(tornado, embers, globalBright);
 
   requestAnimationFrame(frame);
