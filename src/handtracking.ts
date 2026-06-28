@@ -6,6 +6,7 @@
 // fall back to its idle behaviour rather than freezing.
 
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
+import { assignRoles } from "./handroles";
 
 // WASM build must match the installed @mediapipe/tasks-vision version.
 const WASM_BASE =
@@ -23,6 +24,7 @@ const INDEX_MCP = 5; // knuckle where the index finger meets the palm
 const SPAN_NEAR = 0.3;
 const SPAN_FAR = 0.13;
 const SPAN_SMOOTH = 0.3; // EMA factor on raw span — tames per-frame jitter
+const COLOR_SMOOTH = 0.3; // EMA factor on the color hand's height
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -37,6 +39,8 @@ export class HandTracker {
   private lastVideoTime = -1;
   private target: Point | null = null;
   private spanEMA = -1; // smoothed hand span; -1 = not yet seeded
+  private colorY: number | null = null; // control hand height, 0 (top)..1 (bottom)
+  private colorYEMA = -1;
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
@@ -45,6 +49,11 @@ export class HandTracker {
   /** Latest fingertip position in screen pixels, or null if no hand is seen. */
   getTarget(): Point | null {
     return this.target;
+  }
+
+  /** Color hand height (0 top .. 1 bottom), or null when no second hand is up. */
+  getColorY(): number | null {
+    return this.colorY;
   }
 
   /**
@@ -65,7 +74,7 @@ export class HandTracker {
       this.landmarker = await HandLandmarker.createFromOptions(fileset, {
         baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
         runningMode: "VIDEO",
-        numHands: 1,
+        numHands: 2,
       });
     }
 
@@ -78,6 +87,7 @@ export class HandTracker {
   stop(): void {
     this.running = false;
     this.target = null;
+    this.colorY = null;
     if (this.stream) {
       for (const track of this.stream.getTracks()) track.stop();
       this.stream = null;
@@ -92,8 +102,13 @@ export class HandTracker {
     if (v.readyState >= 2 && v.currentTime !== this.lastVideoTime) {
       this.lastVideoTime = v.currentTime;
       const res = this.landmarker.detectForVideo(v, performance.now());
-      const hand = res.landmarks?.[0];
-      if (hand) {
+      const hands = res.landmarks ?? [];
+      if (hands.length) {
+        const labels = (res.handednesses ?? []).map(
+          (h) => h?.[0]?.categoryName ?? "",
+        );
+        const { steer, color } = assignRoles(labels);
+        const hand = hands[steer];
         const tip = hand[INDEX_TIP];
 
         // Hand span as a depth proxy. Normalize x by the video's aspect ratio
@@ -117,9 +132,24 @@ export class HandTracker {
           y: tip.y * window.innerHeight,
           depth,
         };
+
+        // Second hand (if any) drives the color sweep via its wrist height.
+        if (color != null) {
+          const cy = hands[color][WRIST].y;
+          this.colorYEMA =
+            this.colorYEMA < 0
+              ? cy
+              : this.colorYEMA + (cy - this.colorYEMA) * COLOR_SMOOTH;
+          this.colorY = clamp01(this.colorYEMA);
+        } else {
+          this.colorY = null;
+          this.colorYEMA = -1;
+        }
       } else {
         this.target = null;
         this.spanEMA = -1; // re-seed when the hand returns
+        this.colorY = null;
+        this.colorYEMA = -1;
       }
     }
     requestAnimationFrame(this.loop);

@@ -65,7 +65,7 @@ export function initControls(opts: ControlOpts): ControlHandle {
           <label>Video mode</label>
           <button class="toggle video-toggle" role="switch"><span class="knob"></span></button>
         </div>
-        <div class="gradient-hint">webcam on · steer the tip with your index finger</div>
+        <div class="gradient-hint">webcam on · point to steer · raise your other hand to shift colors</div>
       </div>
       <div class="control">
         <label>Slideshow</label>

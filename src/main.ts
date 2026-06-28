@@ -138,6 +138,13 @@ let clock = 0;
 const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 let lastMove = -999;
 let depthEased = 0.5; // smoothed hand depth (0 far .. 1 near), video mode only
+// Color hand: its height rotates the storm's hue via a CSS filter on the canvas
+// (cheap, and leaves the webcam behind it untouched). HUE_RANGE = degrees swept
+// from hand-low to hand-high — tune to taste.
+const HUE_RANGE = 300;
+let hueDeg = 0; // currently applied rotation
+let hueTarget = 0; // what it eases toward (held when the color hand drops out)
+let lastHueStr = "";
 window.addEventListener("pointermove", (e) => {
   mouse.x = e.clientX;
   mouse.y = e.clientY;
@@ -202,13 +209,16 @@ async function setVideoMode(on: boolean): Promise<boolean> {
     }
     state.video = true;
     document.body.classList.add("video-mode");
-    toast("Point your index finger to steer the storm");
+    toast("Point to steer · raise your other hand to shift the colors");
   } else {
     hands.stop();
     state.video = false;
     document.body.classList.remove("video-mode");
     // Restore depth-neutral size/intensity left over from video mode.
     tornado.intensity = 1;
+    canvas.style.filter = "";
+    hueDeg = hueTarget = 0;
+    lastHueStr = "";
     sizing();
   }
   return state.video;
@@ -265,6 +275,16 @@ function frame(now: number) {
     spine.setSegLen(baseSegLen() * sizeMul);
     tornado.intensity = 0.85 + 0.7 * depthEased; // spins harder up close
     brightBoost = 1 + 0.4 * depthEased; // and glows brighter
+
+    // Color hand height sweeps the hue; hold the last value when it drops out.
+    const cy = hands.getColorY();
+    if (cy !== null) hueTarget = (1 - cy) * HUE_RANGE;
+    hueDeg += (hueTarget - hueDeg) * (1 - Math.exp(-6 * dt));
+    const hueStr = `hue-rotate(${hueDeg.toFixed(0)}deg)`;
+    if (hueStr !== lastHueStr) {
+      canvas.style.filter = hueStr;
+      lastHueStr = hueStr;
+    }
   }
   if (director.cinematic && idle) {
     target = director.autoTarget(window.innerWidth, window.innerHeight, morph);
