@@ -9,6 +9,10 @@ interface ControlOpts {
   setCinematic: (v: boolean) => void;
   getDark: () => boolean;
   setDark: (v: boolean) => void;
+  getVideo: () => boolean;
+  /** Toggle webcam hand-tracking. Async (camera + model load); resolves to the
+   *  actual resulting state (false if start failed / was denied). */
+  setVideo: (v: boolean) => Promise<boolean>;
   /** Up to 10 images dropped/picked to drive the slideshow. */
   onImageFiles: (files: File[]) => void;
 }
@@ -55,6 +59,13 @@ export function initControls(opts: ControlOpts): ControlHandle {
           <label>Dark mode</label>
           <button class="toggle dark-toggle" role="switch"><span class="knob"></span></button>
         </div>
+      </div>
+      <div class="control">
+        <div class="control-row">
+          <label>Video mode</label>
+          <button class="toggle video-toggle" role="switch"><span class="knob"></span></button>
+        </div>
+        <div class="gradient-hint">webcam on · steer the tip with your index finger</div>
       </div>
       <div class="control">
         <label>Slideshow</label>
@@ -104,6 +115,21 @@ export function initControls(opts: ControlOpts): ControlHandle {
   darkBtn.addEventListener("click", () => {
     opts.setDark(!opts.getDark());
     syncDark();
+  });
+
+  // --- Video mode toggle ---------------------------------------------------
+  const videoBtn = root.querySelector(".video-toggle") as HTMLButtonElement;
+  const syncVideo = () => videoBtn.classList.toggle("on", opts.getVideo());
+  syncVideo();
+  let videoBusy = false;
+  videoBtn.addEventListener("click", async () => {
+    if (videoBusy) return; // ignore clicks while the camera spins up/down
+    videoBusy = true;
+    videoBtn.classList.add("busy");
+    await opts.setVideo(!opts.getVideo()); // state updated by the caller
+    videoBtn.classList.remove("busy");
+    syncVideo();
+    videoBusy = false;
   });
 
   // --- Slideshow images ----------------------------------------------------

@@ -68,14 +68,24 @@ export class Renderer {
   render(tornado: Tornado, embers: Embers, globalBright: number) {
     const ctx = this.ctx;
     const lut = this.lut;
-    const dark = state.dark;
+    // Video mode forces the dark/additive look so the mist glows over the feed.
+    const dark = state.dark || state.video;
     // Background the trails fade toward.
     const bg = dark ? BG_DARK : BG_LIGHT;
 
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
-    ctx.fillStyle = `rgba(${bg[0]},${bg[1]},${bg[2]},${TRAIL_FADE})`;
-    ctx.fillRect(0, 0, this.w, this.h);
+    if (state.video) {
+      // Fade the previous frame toward TRANSPARENT (not a bg color) so the
+      // webcam shows through while particles still leave comet trails.
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = `rgba(0,0,0,${TRAIL_FADE})`;
+      ctx.fillRect(0, 0, this.w, this.h);
+      ctx.globalCompositeOperation = "source-over";
+    } else {
+      ctx.fillStyle = `rgba(${bg[0]},${bg[1]},${bg[2]},${TRAIL_FADE})`;
+      ctx.fillRect(0, 0, this.w, this.h);
+    }
 
     const parts = tornado.particles;
     // Painter's algorithm: back (far) first, near on top.

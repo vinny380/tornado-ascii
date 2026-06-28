@@ -39,6 +39,8 @@ export class Tornado {
   maxRadius = 200;
   time = 0;
   count: number;
+  /** Extra churn multiplier (video depth mode pushes this up close). 1 = normal. */
+  intensity = 1;
 
   // Morph state. `morph` is 0..1; targets are screen-space positions.
   morph = 0;
@@ -109,7 +111,7 @@ export class Tornado {
 
   update(dt: number, spine: Spine, colorPhase: number) {
     this.time += dt;
-    const speed = state.speed;
+    const speed = state.speed * this.intensity;
     const time = this.time;
     const twoPi = Math.PI * 2;
     // No morph effect unless we actually have a shape to fly to.
